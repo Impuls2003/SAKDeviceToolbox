@@ -25,7 +25,8 @@ func main() {
 		var deviceType = [...]string{
 			"Сканер",
 			"Весы",
-			"Echo тест (необходимо иметь Echo dongle Tx-Rx; Rx-Tx)"}
+			"Echo тест (необходимо иметь Echo dongle Tx-Rx; Rx-Tx)",
+			"Эмуляция весов CAS. (Нужен нуль-модемный кабель или com0com эмулятор)"}
 
 		// Выводим весь список доступного оборудования
 		fmt.Println("Выберите тип тестируемого устройства: ")
@@ -48,6 +49,8 @@ func main() {
 			startWeightTest(devicePort)
 		case 3:
 			startEchoTest(devicePort)
+		case 4:
+			emulateCAS(devicePort)
 		}
 	}
 }
@@ -101,6 +104,7 @@ func startWeightTest(devicePort string) {
 	var deviceSelect = 1
 	var deviceType = [...]string{
 		"CAS",
+		"CAS по запросу (запрос веса: ASCII - D, HEX - 44, DEC - 68)",
 		"Massa-K",
 	}
 
@@ -120,7 +124,9 @@ func startWeightTest(devicePort string) {
 		switch deviceSelect {
 		case 1: // CAS
 			readWeightFromCAS(devicePort)
-		case 2:
+		case 2: // CAS по запросу
+			readWeightFromCASWithRequest(devicePort)
+		case 3:
 			readWeightFromMassaK(devicePort)
 		}
 
@@ -168,9 +174,118 @@ func readWeightFromCAS(devicePort string) {
 	}
 }
 
+func readWeightFromCASWithRequest(devicePort string) {
+	// Открываем порт
+	c := &serial.Config{Name: "COM" + devicePort, Baud: 9600, ReadTimeout: time.Millisecond * 500}
+	s, err := serial.OpenPort(c)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	buf := make([]byte, 1)
+	var n int
+	var weight string
+
+	// Заходим в бесконечный цикл чтения данных из порта. Выйти отсюда можно только через ESC
+	for {
+		buf[0] = 68 //D
+		_, err := s.Write(buf[:])
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for (len(weight)) < 22 {
+			n, err = s.Read(buf) // Прочитали
+			if err != nil {
+				log.Fatal(err)
+			}
+			if n != 0 {
+				weight += string(buf)
+			}
+			if ESCIsPressed() { // Проверяем состояние ESC. Если нажата - выходим
+				s.Close()
+				return
+			}
+		}
+		time.Sleep(10)
+		fmt.Print(strings.ReplaceAll(weight, "\n", ""))
+		weight = ""
+
+		if ESCIsPressed() { // Проверяем состояние ESC. Если нажата - выходим
+			s.Close()
+			return
+		}
+	}
+}
+
 func readWeightFromMassaK(devicePort string) {
 
 }
+
+func emulateCAS(devicePort string) {
+
+	var fixedW = "n"
+	fmt.Print("Зафиксировать вес? y/n [n]: ")
+	fmt.Scanf("%s\n", &fixedW)
+	fmt.Println("Начата отправка данных в: ", "COM"+devicePort, "\n", "ESC для выхода.")
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // Инициализируем генератор случайных чисел
+
+	// Открываем порт
+	c := &serial.Config{Name: "COM" + devicePort, Baud: 9600, ReadTimeout: time.Millisecond * 500}
+	s, err := serial.OpenPort(c)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	buf := make([]byte, 22)
+	isFirst := true
+
+	// Заходим в бесконечный цикл записи данных в порт. Выйти отсюда можно только через ESC
+	for {
+		// Генерируем управляющую строку для передачи веса
+		if isFirst || fixedW != "y" {
+			buf[0] = 83                      //S
+			buf[1] = 84                      //T
+			buf[2] = 44                      //,
+			buf[3] = 78                      //N
+			buf[4] = 84                      //T
+			buf[5] = 44                      //,
+			buf[6] = 1                       //
+			buf[7] = 188                     //�
+			buf[8] = 44                      //,
+			buf[9] = 32                      //
+			buf[10] = 32                     //
+			buf[11] = 32                     //
+			buf[12] = 48 + (byte)(r.Intn(9)) // ?
+			buf[13] = 48 + (byte)(r.Intn(9)) // ?
+			buf[14] = 46                     //.
+			buf[15] = 48 + (byte)(r.Intn(9)) // ?
+			buf[16] = 48 + (byte)(r.Intn(9)) // ?
+			buf[17] = 32                     //
+			buf[18] = 107                    //k
+			buf[19] = 103                    //g
+			buf[20] = 13                     // /r
+			buf[21] = 10                     // /n
+
+			isFirst = false
+		}
+
+		_, err := s.Write(buf[:])
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		time.Sleep(10)
+		if ESCIsPressed() { // Проверяем состояние ESC. Если нажата - выходим
+			s.Close()
+			return
+		}
+	}
+}
+
 func startEchoTest(devicePort string) {
 
 	const ArraySize = 128
