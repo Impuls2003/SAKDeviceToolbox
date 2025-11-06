@@ -4,20 +4,32 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/AlecAivazis/survey/v2"
 	"github.com/tarm/serial"
+	"go.bug.st/serial/enumerator"
 	"golang.org/x/sys/windows"
 )
+
+type SelectedData struct {
+	Port       string
+	deviceType string
+}
 
 var user32_dll = windows.NewLazyDLL("user32.dll")
 var GetKeyState = user32_dll.NewProc("GetKeyState")
 
 func main() {
 
-	var deviceSelect = 1
+	mainMenu()
+
+	/*var deviceSelect = 1
 	var devicePort = "1"
 
 	for {
@@ -47,15 +59,111 @@ func main() {
 			startScanTest(devicePort)
 		case 2:
 			startWeightTest(devicePort)
-		case 3:
-			startEchoTest(devicePort)
 		case 4:
 			emulateCAS(devicePort)
 		}
 	}
+	*/
 }
 
-// У функции единственное предназначение. Она проверяет состояние ESC. Если кнопка нажата вернут true
+func mainMenu() {
+	var selectData SelectedData
+
+	// Бесконечный цикл. Выход только из меню, или закрыв приложение
+	for {
+		// Если порт не выбран, делаем запрос для выбора порта
+		// Если порт выбран предлагаем пользователю его сменить
+		if selectData.Port == "" {
+			selectData.Port = showMenuSelectCOMPort()
+		}
+		// Очищаем экран и выводим текущий выбранный порт
+		clearScreen()
+		fmt.Println("Текущий порт: ", selectData.Port)
+
+		prompt := &survey.Select{
+			Message: "Выберите действие:",
+			Options: []string{
+				"Сменить COM порт",
+				"Сканер",
+				"Весы",
+				"Echo тест",
+				"Эмуляция весов CAS",
+				"Выход",
+			},
+		}
+		// Выводим главное меню
+		survey.AskOne(prompt, &selectData.deviceType)
+
+		switch selectData.deviceType {
+		case "Сменить COM порт":
+			selectData.Port = showMenuSelectCOMPort()
+			continue
+		case "Сканер":
+			//startScanner()
+		case "Весы":
+			//startWeightMenu()
+		case "Echo тест":
+			startEchoTest(selectData.Port)
+			continue
+		case "Эмуляция весов CAS":
+			//startEmulator()
+		case "Выход":
+			fmt.Println("Завершение работы.")
+			os.Exit(0)
+		}
+	}
+}
+
+// Отображает меню выбора порта
+func showMenuSelectCOMPort() string {
+	clearScreen()
+
+	ports, err := enumerator.GetDetailedPortsList()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	portNames := []string{}
+	for _, p := range ports {
+		portNames = append(portNames, p.Name)
+	}
+	// Особый пункт меню для ввода вручную
+	portNames = append(portNames, "Ввести вручную...")
+
+	var selected string
+
+	// меню выбора
+	prompt := &survey.Select{
+		Message:  "Выберите COM-порт:",
+		Options:  portNames,
+		PageSize: 10,
+	}
+
+	survey.AskOne(prompt, &selected)
+
+	if selected == "Ввести вручную..." {
+		survey.AskOne(&survey.Input{Message: "Введите порт вручную:"}, &selected)
+		selected = "COM" + selected
+	}
+
+	return selected
+}
+
+// Очистка экрана
+func clearScreen() {
+	switch runtime.GOOS {
+	case "windows":
+		cmd := exec.Command("cmd", "/c", "cls")
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+	default:
+		cmd := exec.Command("clear")
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+	}
+}
+
+// У функции единственное предназначение. Она проверяет состояние ESC. Если кнопка нажата вернуть true
 func ESCIsPressed() bool {
 
 	r1, _, _ := GetKeyState.Call(27) // Читаем состояние кнопки ESC.
@@ -290,12 +398,12 @@ func startEchoTest(devicePort string) {
 
 	const ArraySize = 128
 
-	fmt.Println("Начато чтение данных из: ", "COM"+devicePort, "\n", "ESC для выхода.")
+	fmt.Println("Для выхода нажмите ESC.")
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano())) // Инициализируем генератор случайных чисел
 
 	// Открываем порт
-	c := &serial.Config{Name: "COM" + devicePort, Baud: 9600, ReadTimeout: time.Millisecond * 500}
+	c := &serial.Config{Name: devicePort, Baud: 9600, ReadTimeout: time.Millisecond * 500}
 	s, err := serial.OpenPort(c)
 
 	if err != nil {
