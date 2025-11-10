@@ -1,209 +1,16 @@
 package main
 
 import (
-	"fmt"
-	"log"
-	"math/rand"
-	"os"
-	"os/exec"
-	"runtime"
-	"strings"
-	"time"
-
-	"github.com/AlecAivazis/survey/v2"
-	"github.com/tarm/serial"
-	"go.bug.st/serial/enumerator"
-	"golang.org/x/sys/windows"
+	gui "github.com/Impuls2003/SAKDeviceToolbox/GUI"
+	"github.com/Impuls2003/SAKDeviceToolbox/logic"
 )
 
-var user32_dll = windows.NewLazyDLL("user32.dll")
-var GetKeyState = user32_dll.NewProc("GetKeyState")
-
 func main() {
-	mainMenu()
+	device := &logic.Device{}
+	gui.Show(device)
 }
 
-func mainMenu() {
-	var devicePort string
-
-	// Бесконечный цикл. Выход только из меню, или закрыв приложение
-	for {
-		// Если порт не выбран, делаем запрос для выбора порта
-		// Если порт выбран предлагаем пользователю его сменить
-		if devicePort == "" {
-			devicePort = showMenuSelectCOMPort()
-		}
-		// Очищаем экран и выводим текущий выбранный порт
-		clearScreen()
-		fmt.Println("Текущий порт: ", devicePort)
-
-		prompt := &survey.Select{
-			Message: "Выберите действие:",
-			Options: []string{
-				"Сменить COM порт",
-				"Сканер",
-				"Весы",
-				"Echo тест",
-				"Эмуляция весов CAS",
-				"Выход",
-			},
-		}
-
-		var deviceType string
-		// Выводим главное меню
-		survey.AskOne(prompt, &deviceType)
-
-		switch deviceType {
-		case "Сменить COM порт":
-			devicePort = showMenuSelectCOMPort()
-			continue
-		case "Сканер":
-			startScanTest(devicePort)
-		case "Весы":
-			showWeightMenu(devicePort)
-		case "Echo тест":
-			startEchoTest(devicePort)
-			continue
-		case "Эмуляция весов CAS":
-			emulateCAS(devicePort)
-		case "Выход":
-			fmt.Println("Завершение работы.")
-			os.Exit(0)
-		}
-	}
-}
-
-// Отображает меню выбора порта
-func showMenuSelectCOMPort() string {
-	clearScreen()
-
-	ports, err := enumerator.GetDetailedPortsList()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	portNames := []string{}
-	for _, p := range ports {
-		portNames = append(portNames, p.Name)
-	}
-	// Особый пункт меню для ввода вручную
-	portNames = append(portNames, "Ввести вручную...")
-
-	var selected string
-
-	// меню выбора
-	prompt := &survey.Select{
-		Message:  "Выберите COM-порт:",
-		Options:  portNames,
-		PageSize: 10,
-	}
-
-	survey.AskOne(prompt, &selected)
-
-	if selected == "Ввести вручную..." {
-		survey.AskOne(&survey.Input{Message: "Введите порт вручную:"}, &selected)
-		selected = "COM" + selected
-	}
-
-	return selected
-}
-
-func showWeightMenu(devicePort string) {
-
-	// Бесконечный цикл. Выход из цикла только через меню
-	for {
-		// Очищаем экран и выводим текущий выбранный порт
-		clearScreen()
-		fmt.Println("Текущий порт: ", devicePort)
-
-		var weightType string
-
-		prompt := &survey.Select{
-			Message: "Выберите тип весов:",
-			Options: []string{
-				"CAS",
-				"CAS по запросу (запрос веса: ASCII - D, HEX - 44, DEC - 68)",
-				"Keli",
-				"Massa-K",
-				"Назад",
-			},
-		}
-		// Выводим главное меню
-		survey.AskOne(prompt, &weightType)
-
-		switch weightType {
-		case "CAS":
-			readWeightFromCAS(devicePort)
-		case "CAS по запросу (запрос веса: ASCII - D, HEX - 44, DEC - 68)":
-			readWeightFromCASWithRequest(devicePort)
-		case "Keli":
-			//
-		case "Massa-K":
-			readWeightFromMassaK(devicePort)
-		case "Назад":
-			return
-		}
-	}
-}
-
-// Очистка экрана
-func clearScreen() {
-	switch runtime.GOOS {
-	case "windows":
-		cmd := exec.Command("cmd", "/c", "cls")
-		cmd.Stdout = os.Stdout
-		cmd.Run()
-	default:
-		cmd := exec.Command("clear")
-		cmd.Stdout = os.Stdout
-		cmd.Run()
-	}
-}
-
-// У функции единственное предназначение. Она проверяет состояние ESC. Если кнопка нажата вернуть true
-func ESCIsPressed() bool {
-
-	r1, _, _ := GetKeyState.Call(27) // Читаем состояние кнопки ESC.
-	return (r1 > 1)
-
-}
-
-func startScanTest(devicePort string) {
-
-	fmt.Println("Начато чтение данных из: ", devicePort, "\n", "ESC для выхода.")
-
-	// Открываем порт
-	c := &serial.Config{Name: devicePort, Baud: 9600, ReadTimeout: time.Millisecond * 500}
-	s, err := serial.OpenPort(c)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var n int = 0
-	buf := make([]byte, 128)
-
-	// Заходим в бесконечный цикл чтения данных из порта. Выйти отсюда можно только через ESC
-	for {
-		n, err = s.Read(buf) // Прочитали
-		if err != nil {
-			log.Fatal(err)
-		}
-		for i := 0; i < n; i++ { // Посмвольно выводим прочитанное в консоль. Если встретили 13 - переходим на новую строку
-			if buf[i] == 13 {
-				fmt.Print("\n")
-			} else {
-				fmt.Print(string(buf[i]))
-			}
-		}
-
-		if ESCIsPressed() { // Проверяем состояние ESC. Если нажата - выходим
-			s.Close()
-			return
-		}
-	}
-}
-
+/*
 func readWeightFromCAS(devicePort string) {
 	// Открываем порт
 	c := &serial.Config{Name: devicePort, Baud: 9600, ReadTimeout: time.Millisecond * 500}
@@ -405,3 +212,4 @@ func startEchoTest(devicePort string) {
 		}
 	}
 }
+*/
