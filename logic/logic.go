@@ -382,8 +382,7 @@ func startReadWeightMassaKRequest(d *Device) (string, error) {
 		}
 	}
 
-	time.Sleep(3 * time.Second)
-	return "OK", nil
+	return "", nil
 }
 
 // Эмуляция весов CAS
