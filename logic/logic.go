@@ -183,11 +183,10 @@ func startScanTest(d *Device) (string, error) {
 		if n == 0 {
 			break
 		}
-
-		res.WriteString(string(buf[:n]))
+		res.WriteString(strings.ReplaceAll(string(buf[:n]), "\r", "\n"))
 	}
 
-	return res.String(), nil
+	return strings.TrimSuffix(res.String(), "\n"), nil
 }
 
 // Чтение веса CAS непрерывная передача данных
