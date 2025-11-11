@@ -20,10 +20,11 @@ func Show(device *logic.Device) {
 		// Если порт не выбран, делаем запрос для выбора порта
 		// Если порт выбран предлагаем пользователю его сменить
 		if device.Port == "" {
-			device.Port = showMenuSelectCOMPort()
+			showSelectCOMPortMenu(device)
 		}
 		// Очищаем экран и выводим информационные заголовки
 		showHeader(device)
+		device.LastError = ""
 
 		prompt := &survey.Select{
 			Message: "Выберите действие:",
@@ -42,15 +43,13 @@ func Show(device *logic.Device) {
 
 		switch deviceType {
 		case "Сменить COM порт":
-			device.Port = showMenuSelectCOMPort()
-			continue
+			showSelectCOMPortMenu(device)
 		case "Сканер":
 			showScannerMenu(device)
 		case "Весы":
 			showWeightMenu(device)
 		case "Echo тест":
-			//startEchoTest(device)
-			continue
+			showEchoTestMenu(device)
 		case "Выход":
 			os.Exit(0)
 		}
@@ -58,7 +57,7 @@ func Show(device *logic.Device) {
 }
 
 // Отображает меню выбора порта
-func showMenuSelectCOMPort() string {
+func showSelectCOMPortMenu(device *logic.Device) {
 
 	// Очищаем экран
 	clearScreen()
@@ -85,7 +84,7 @@ func showMenuSelectCOMPort() string {
 		selected = "COM" + selected
 	}
 
-	return selected
+	device.Port = selected
 }
 
 // Отображает меню работы со сканером
@@ -134,7 +133,8 @@ func showWeightMenu(device *logic.Device) {
 				"CAS по запросу (запрос веса: ASCII - D, HEX - 44, DEC - 68)",
 				"Keli",
 				"Massa-K",
-				"Эмуляция весов CAS",
+				"Эмуляция весов CAS непрерывно",
+				"Эмуляция весов CAS по запросу (HEX - 44)",
 				"Назад",
 			},
 		}
@@ -147,11 +147,13 @@ func showWeightMenu(device *logic.Device) {
 		case "CAS по запросу (запрос веса: ASCII - D, HEX - 44, DEC - 68)":
 			device.Type = logic.ScalesCASRequest
 		case "Keli":
-			device.Type = logic.ScalesCASRequest
+			device.Type = logic.ScalesKeliRequest
 		case "Massa-K":
 			device.Type = logic.ScalesMassaKRequest
-		case "Эмуляция весов CAS":
+		case "Эмуляция весов CAS непрерывно":
 			device.Type = logic.EmulatorCAS
+		case "Эмуляция весов CAS по запросу (HEX - 44)":
+			device.Type = logic.EmulatorCASRequest
 		case "Назад":
 			return
 		}
@@ -169,8 +171,9 @@ func showWeightMenu(device *logic.Device) {
 				}
 
 				// Если есть что выводить - выводим
+				// Форматируем строку чтобы не было перехода на новую строку
 				if str != "" {
-					fmt.Println(str)
+					fmt.Printf("\rВес: %-100s", str)
 				}
 
 				// Если нажата ESC - выходим из цикла
@@ -181,6 +184,36 @@ func showWeightMenu(device *logic.Device) {
 
 			device.Disconnect()
 		}
+	}
+}
+
+// Отображает меню работы со сканером
+func showEchoTestMenu(device *logic.Device) {
+	device.Type = logic.EchoTest
+	showHeader(device)
+	fmt.Println("Начато Echo тестирование порта. ESC для выхода.")
+	if device.Connect() == nil {
+		// Если подключение прошло успешно.
+		// Заходим в бесконечный цикл. Выход из цикла по ESC
+		for {
+			str, err := device.Process()
+			// Если была ошибка - выходим из цикла
+			if err != nil {
+				break
+			}
+
+			// Если есть что выводить - выводим
+			if str != "" {
+				fmt.Println(str)
+			}
+
+			// Если нажата ESC - выходим из цикла
+			if ESCIsPressed() { // Проверяем состояние ESC. Если нажата - выходим
+				break
+			}
+		}
+
+		device.Disconnect()
 	}
 }
 
@@ -208,13 +241,12 @@ func showHeader(device *logic.Device) {
 	// Если в процессе были ошибки - вывести их на экран красным
 	if device.LastError != "" {
 		fmt.Printf("\033[31m%s\033[0m\n", device.LastError)
+		device.LastError = ""
 	}
 }
 
 // У функции единственное предназначение. Она проверяет состояние ESC. Если кнопка нажата вернуть true
 func ESCIsPressed() bool {
-
 	r1, _, _ := GetKeyState.Call(27) // Читаем состояние кнопки ESC.
 	return (r1 > 1)
-
 }

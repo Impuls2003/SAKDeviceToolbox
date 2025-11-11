@@ -9,7 +9,7 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${file}",
+            "program": "${workspaceFolder}/SAKToolbox.go",            
             "console": "integratedTerminal"
         }
     ]
